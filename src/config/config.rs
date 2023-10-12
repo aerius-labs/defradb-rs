@@ -70,9 +70,9 @@ impl Config {
         Ok(())
     }
 
-    fn set_rootdir(&mut self, rootdir: &str) -> Result<(), ConfigError> {
+    fn set_rootdir(&mut self, rootdir: &str) -> Result<(), Error> {
         if rootdir.is_empty() {
-            return Err(ConfigError::InvalidRootDir(rootdir.to_string()));
+            return ConfigError::InvalidRootDir(rootdir.to_string()).into();
         }
 
         self.rootdir = fs::canonicalize(rootdir).into()?; // This gets the absolute path
@@ -80,7 +80,7 @@ impl Config {
         Ok(())
     }
 
-    fn validate(&self) -> Result<(), ConfigError> {
+    fn validate(&self) -> Result<(), Error> {
         self.datastore.validate()?;
         self.api.validate()?;
         self.net.validate()?;
@@ -88,7 +88,7 @@ impl Config {
         Ok(())
     }
 
-    fn params_preprocessing(&mut self) -> Result<(), ConfigError> {
+    fn params_preprocessing(&mut self) -> Result<(), Error> {
         let update_path = |key: &str| {
             let path = self.config.get::<String>(key).unwrap_or_default();
             if !Path::new(&path).is_absolute() {
