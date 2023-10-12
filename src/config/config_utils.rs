@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::fs;
 use std::str::FromStr;
 
 pub(crate)struct ByteSize(u64);
