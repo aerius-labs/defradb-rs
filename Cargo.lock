@@ -159,9 +159,11 @@ dependencies = [
  "config",
  "dirs",
  "env_logger",
+ "idna",
  "log",
  "multiaddr",
  "serde 1.0.188",
+ "thiserror",
 ]
 
 [[package]]
