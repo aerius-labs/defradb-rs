@@ -108,7 +108,17 @@ struct NetConfig {
 }
 
 impl NetConfig {
-    pub fn validate(&self) -> Result<(), Error> {
+
+    fn default_net_config() -> Self {
+        return NetConfig {
+            p2p_address: "/ip4/0.0.0.0/tcp/9171".to_string(),
+            p2p_disabled: false,
+            peers: "".to_string(),
+            pub_sub_enabled: true,
+            relay_enabled: false,
+        }
+    }
+    fn validate(&self) -> Result<(), Error> {
         self.p2p_address.parse::<Multiaddr>().map_err(|err| ConfigError::InvalidP2PAddress(err.to_string(), self.p2p_address.clone()).into())?;
 
         if !self.peers.is_empty() {
