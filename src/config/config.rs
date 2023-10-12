@@ -1,13 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Error;
+use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use log::{info, error};
-use config::{Config as ConfigLib, File, Environment, FileFormat};
+use config::{File, Environment, FileFormat};
 use multiaddr::{Multiaddr};
 
-use crate::config::config_utils::ByteSize;
+use crate::config::config_utils::{ByteSize, expand_home_dir};
 use crate::config::errors::ConfigError;
 
 
@@ -25,18 +26,18 @@ struct Config {
     api: APIConfig,
     net: NetConfig,
     log: LoggingConfig,
-    rootdir: PathBuf,
-    config: ConfigLib::Config,
+    rootdir: String,
+    config: config::Config,
 }
 
 impl Config {
     pub fn default_config() -> Result<Self, Box<dyn std::error::Error>> {
-        let mut config = ConfigLib::Config::default();
+        let mut config = config::Config::default();
 
-        config.set_default("Datastore", default_datastore_config())?;
-        config.set_default("API", default_api_config())?;
-        config.set_default("Net", default_net_config())?;
-        config.set_default("Log", default_log_config())?;
+        config.set_default("Datastore", DatastoreConfig::default_data_store_config())?;
+        config.set_default("API", APIConfig::default_api_config())?;
+        config.set_default("Net", NetConfig::default_net_config())?;
+        config.set_default("Log", LoggingConfig::default_log_config())?;
         config.set_default("Rootdir", PathBuf::new())?;
 
         config.set_env_prefix("defra_env_prefix");
@@ -68,6 +69,59 @@ impl Config {
 
         Ok(())
     }
+
+    fn set_rootdir(&mut self, rootdir: &str) -> Result<(), ConfigError> {
+        if rootdir.is_empty() {
+            return Err(ConfigError::InvalidRootDir(rootdir.to_string()));
+        }
+
+        self.rootdir = fs::canonicalize(rootdir).into()?; // This gets the absolute path
+        self.config.set_default("rootdir", &self.rootdir.display().to_string())?;
+        Ok(())
+    }
+
+    fn validate(&self) -> Result<(), ConfigError> {
+        self.datastore.validate()?;
+        self.api.validate()?;
+        self.net.validate()?;
+        self.log.validate()?;
+        Ok(())
+    }
+
+    fn params_preprocessing(&mut self) -> Result<(), ConfigError> {
+        let update_path = |key: &str| {
+            let path = self.config.get::<String>(key).unwrap_or_default();
+            if !Path::new(&path).is_absolute() {
+                self.config.set(key, self.rootdir.join(path).display().to_string()).unwrap();
+            }
+        };
+
+        update_path("datastore.badger.path");
+        update_path("api.privkeypath");
+        update_path("api.pubkeypath");
+
+        if let Ok(loglogger_as_string_slice) = self.config.get::<Vec<String>>("log.logger") {
+            let combined = loglogger_as_string_slice.join(";");
+            self.config.set("log.logger", combined).unwrap();
+        }
+
+        // Assuming expand_home_dir exists
+        expand_home_dir(&mut self.api.priv_key_path)?;
+        expand_home_dir(&mut self.api.pub_key_path)?;
+
+        // Assuming ByteSize and its set() method exist
+        let mut bs = ByteSize::default();
+        let value = self.config.get::<String>("datastore.badger.valuelogfilesize").unwrap_or_default();
+        bs.set(&value)?;
+        self.datastore.badger.value_log_file_size = bs;
+
+        Ok(())
+    }
+
+    fn load(&mut self) -> Result<(), ConfigError> {
+        self.log.load()?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -89,18 +143,40 @@ struct MemoryConfig {
     size: u64,
 }
 
+impl DatastoreConfig {
+    // TODO: add default config
+
+    fn validate(&self) -> Result<(), ConfigError> {
+        match self.store.as_str() {
+            "badger" | "memory" => Ok(()),
+            _ => Err(ConfigError::InvalidDatastoreType(self.store.clone())),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct APIConfig {
     address: String,
     tls: bool,
     allowed_origins: Vec<String>,
-    pub_key_path: PathBuf,
-    priv_key_path: PathBuf,
+    pub_key_path: String,
+    priv_key_path: String,
     email: String,
 }
 
 
 impl APIConfig {
+    fn default_api_config() -> Self {
+        APIConfig {
+            address: "localhost:9181".to_string(),
+            tls: false,
+            allowed_origins: vec![],
+            pub_key_path: "certs/server.key".to_string(),
+            priv_key_path: "certs/server.crt".to_string(),
+            email: DEFAULT_API_EMAIL.to_string(),
+        }
+    }
+
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.address.is_empty() {
             return Err(ConfigError::InvalidDatabaseURL);
