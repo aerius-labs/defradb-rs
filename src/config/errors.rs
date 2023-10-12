@@ -1,5 +1,6 @@
-use std::fmt::Error;
+use thiserror::Error;
 
+#[derive(Error, Debug)]
 pub enum ConfigError {
     #[error("failed to write file: {0}")]
     FailedToWriteFile(String),
@@ -31,13 +32,13 @@ pub enum ConfigError {
     #[error("invalid RPC MaxConnectionIdle: {0}")]
     InvalidRPCMaxConnectionIdle(String),
 
-    #[error("invalid P2P address: {0: 1}")]
+    #[error("invalid P2P address: {0}")]
     InvalidP2PAddress(String, String),
 
     #[error("invalid RPC address: {0}")]
     InvalidRPCAddress(String),
 
-    #[error("invalid bootstrap peers: {0: 1}")]
+    #[error("invalid bootstrap peers: {0}")]
     InvalidBootstrapPeers(String, Vec<String>),
 
     #[error("invalid log level: {0}")]
@@ -61,7 +62,7 @@ pub enum ConfigError {
     #[error("could not process config template")]
     ConfigTemplateFailed,
 
-    #[error("could not get named logger config: {0: 1}")]
+    #[error("could not get named logger config: {0}")]
     CouldNotObtainLoggerConfig(String, String),
 
     #[error("logging config parameter was not provided as <key>=<value> pair: {0}")]
