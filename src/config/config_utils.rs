@@ -4,25 +4,25 @@ use std::str::FromStr;
 pub(crate)struct ByteSize(u64);
 
 const B: ByteSize = ByteSize(1);
-const KiB: ByteSize = B << 10;
-const MiB: ByteSize = KiB << 10;
-const GiB: ByteSize = MiB << 10;
-const TiB: ByteSize = GiB << 10;
-const PiB: ByteSize = TiB << 10;
+const KiB: ByteSize = ByteSize(B.0 << 10);
+const MiB: ByteSize = ByteSize(KiB.0 << 10);
+const GiB: ByteSize = ByteSize(MiB.0 << 10);
+const TiB: ByteSize = ByteSize(GiB.0 << 10);
+const PiB: ByteSize = ByteSize(TiB.0 << 10);
 
 impl ByteSize {
     pub fn set(&mut self, s: &str) -> Result<(), String> {
-        let (digit_string, unit): (&str, &str) = s.chars().partition(|&c| c.is_digit(10));
+        let (digit_string, unit): (String, String) = s.chars().partition(|&c| c.is_digit(10));
 
         let digits = digit_string.parse::<u64>().map_err(|e| format!("Unable to parse ByteSize: {}", e))?;
 
         match unit.to_uppercase().trim() {
-            "B" => *self = ByteSize(digits * B),
-            "KB" | "KIB" => *self = ByteSize(digits * KiB),
-            "MB" | "MIB" => *self = ByteSize(digits * MiB),
-            "GB" | "GIB" => *self = ByteSize(digits * GiB),
-            "TB" | "TIB" => *self = ByteSize(digits * TiB),
-            "PB" | "PIB" => *self = ByteSize(digits * PiB),
+            "B" => *self = ByteSize(digits * B.0),
+            "KB" | "KIB" => *self = ByteSize(digits * KiB.0),
+            "MB" | "MIB" => *self = ByteSize(digits * MiB.0),
+            "GB" | "GIB" => *self = ByteSize(digits * GiB.0),
+            "TB" | "TIB" => *self = ByteSize(digits * TiB.0),
+            "PB" | "PIB" => *self = ByteSize(digits * PiB.0),
             _ => *self = ByteSize(digits),
         }
 
@@ -41,7 +41,7 @@ impl ByteSize {
             n /= UNIT;
         }
 
-        format!("{}{}iB", self.0 / div, "KMGTP".chars().nth(exp).unwrap_or(' '))
+        format!("{} {}iB", self.0 / div, "KMGTP".chars().nth(exp).unwrap_or(' '))
     }
 }
 
