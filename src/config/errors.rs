@@ -31,14 +31,14 @@ pub enum ConfigError {
     #[error("invalid RPC MaxConnectionIdle: {0}")]
     InvalidRPCMaxConnectionIdle(String),
 
-    #[error("invalid P2P address: {0}")]
-    InvalidP2PAddress(String),
+    #[error("invalid P2P address: {0: 1}")]
+    InvalidP2PAddress(String, String),
 
     #[error("invalid RPC address: {0}")]
     InvalidRPCAddress(String),
 
-    #[error("invalid bootstrap peers: {0}")]
-    InvalidBootstrapPeers(String),
+    #[error("invalid bootstrap peers: {0: 1}")]
+    InvalidBootstrapPeers(String, Vec<String>),
 
     #[error("invalid log level: {0}")]
     InvalidLogLevel(String),
@@ -61,7 +61,7 @@ pub enum ConfigError {
     #[error("could not process config template")]
     ConfigTemplateFailed,
 
-    #[error("could not get named logger config: {0}")]
+    #[error("could not get named logger config: {0: 1}")]
     CouldNotObtainLoggerConfig(String, String),
 
     #[error("logging config parameter was not provided as <key>=<value> pair: {0}")]

@@ -4,6 +4,7 @@ use std::fmt::Error;
 use std::path::{Path, PathBuf};
 use log::{info, error};
 use config::{Config as ConfigLib, File, Environment, FileFormat};
+use multiaddr::{Multiaddr};
 
 use crate::config::config_utils::ByteSize;
 use crate::config::errors::ConfigError;
@@ -104,6 +105,21 @@ struct NetConfig {
     peers: String,
     pub_sub_enabled: bool,
     relay_enabled: bool,
+}
+
+impl NetConfig {
+    pub fn validate(&self) -> Result<(), Error> {
+        self.p2p_address.parse::<Multiaddr>().map_err(|err| ConfigError::InvalidP2PAddress(err.to_string(), self.p2p_address.clone()).into())?;
+
+        if !self.peers.is_empty() {
+            let peers: Vec<&str> = self.peers.split(',').collect();
+            for addr in peers {
+                self.p2p_address.parse::<Multiaddr>().map_err(|err| ConfigError::InvalidBootstrapPeers(err.to_string(), peers.into_iter().map(|x| x.to_string()).collect()).into())?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -219,7 +235,7 @@ impl LoggingConfig {
                 }
                 match self.get_or_create_named_logger(parsed_kv[0]) {
                     Ok(c) => c.logging_config.level = parsed_kv[1].to_string(),
-                    Err(e) => return Err(ConfigError::CouldNotObtainLoggerConfig(e, parsed_kv[0].to_string())),
+                    Err(e) => return Err(ConfigError::CouldNotObtainLoggerConfig(e.to_string(), parsed_kv[0].to_string())),
                 }
             }
         }
