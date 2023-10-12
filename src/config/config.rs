@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Error;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use log::{info, error};
 use config::{Config as ConfigLib, File, Environment, FileFormat};
@@ -96,6 +97,58 @@ struct APIConfig {
     pub_key_path: PathBuf,
     priv_key_path: PathBuf,
     email: String,
+}
+
+
+impl APIConfig {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.address.is_empty() {
+            return Err(ConfigError::InvalidDatabaseURL);
+        }
+
+        if self.address == "localhost" || self.address.parse::<SocketAddr>().is_ok() {
+            return Err(ConfigError::MissingPortNumber);
+        }
+
+        if Self::is_valid_domain_name(&self.address) {
+            return Ok(());
+        }
+
+        // Try parsing as "host:port"
+        if let Ok(addrs) = (&self.address[..], 0).to_socket_addrs() {
+            for addr in addrs {
+                if addr.ip().is_loopback() {
+                    return Ok(());
+                }
+                if !Self::is_valid_domain_name(&addr.ip().to_string()) {
+                    return Err(ConfigError::NoPortWithDomain);
+                }
+            }
+        } else {
+            return Err(ConfigError::InvalidDatabaseURL);
+        }
+
+        Ok(())
+    }
+
+    fn is_valid_domain_name(domain: &str) -> bool {
+        let config = idna::Config::default()
+            .transitional_processing(false)
+            .use_std3_ascii_rules(true);
+
+        match idna::Config::to_ascii(config, domain, ) {
+            Ok(ascii_domain) => ascii_domain == domain,
+            Err(_) => false,
+        }
+    }
+
+    pub fn address_to_url(&self) -> String {
+        if self.tls {
+            format!("https://{}", self.address)
+        } else {
+            format!("http://{}", self.address)
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
