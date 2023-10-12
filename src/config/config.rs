@@ -264,6 +264,20 @@ impl LoggingConfig {
         // logging::set_config(c);
         Ok(())
     }
+
+    fn get_or_create_named_logger(&mut self, name: &str) -> Result<&mut NamedLoggingConfig, Error> {
+        if let Some(named_cfg) = self.named_overrides.get_mut(name) {
+            return Ok(named_cfg);
+        }
+
+        // If doesn't exist, create a new named logger
+        let named_cfg = NamedLoggingConfig {
+            name: name.to_string(),
+            logging_config: self.clone(),
+        };
+        self.named_overrides.insert(name.to_string(), named_cfg);
+        Ok(self.named_overrides.get_mut(name).unwrap())
+    }
 }
 
 impl NamedLoggingConfig {
