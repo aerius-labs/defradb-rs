@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::ConfigError;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub(crate)struct ByteSize(u64);
+pub struct ByteSize(u64);
 
 const B: ByteSize = ByteSize(1);
 const KiB: ByteSize = ByteSize(B.0 << 10);
