@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use serde::{Deserialize, Serialize};
+use crate::config::ConfigError;
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate)struct ByteSize(u64);
 
 const B: ByteSize = ByteSize(1);
@@ -11,10 +14,10 @@ const TiB: ByteSize = ByteSize(GiB.0 << 10);
 const PiB: ByteSize = ByteSize(TiB.0 << 10);
 
 impl ByteSize {
-    pub fn set(&mut self, s: &str) -> Result<(), String> {
+    pub fn set(&mut self, s: &str) -> Result<(), ConfigError> {
         let (digit_string, unit): (String, String) = s.chars().partition(|&c| c.is_digit(10));
 
-        let digits = digit_string.parse::<u64>().map_err(|e| format!("Unable to parse ByteSize: {}", e))?;
+        let digits = digit_string.parse::<u64>().map_err(|_| ConfigError::Custom(s.to_string()))?;
 
         match unit.to_uppercase().trim() {
             "B" => *self = ByteSize(digits * B.0),
@@ -46,9 +49,9 @@ impl ByteSize {
 }
 
 impl FromStr for ByteSize {
-    type Err = String;
+    type Err = ConfigError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self, ConfigError> {
         let mut byte_size = ByteSize(0);
         byte_size.set(s)?;
         Ok(byte_size)

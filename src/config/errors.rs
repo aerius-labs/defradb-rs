@@ -32,14 +32,14 @@ pub enum ConfigError {
     #[error("invalid RPC MaxConnectionIdle: {0}")]
     InvalidRPCMaxConnectionIdle(String),
 
-    #[error("invalid P2P address: {0}")]
+    #[error("invalid P2P address: {0}, {1}")]
     InvalidP2PAddress(String, String),
 
     #[error("invalid RPC address: {0}")]
     InvalidRPCAddress(String),
 
-    #[error("invalid bootstrap peers: {0}")]
-    InvalidBootstrapPeers(String, Vec<String>),
+    #[error("invalid bootstrap peers: {0}, {1}")]
+    InvalidBootstrapPeers(String, String),
 
     #[error("invalid log level: {0}")]
     InvalidLogLevel(String),
@@ -103,4 +103,7 @@ pub enum ConfigError {
 
     #[error("invalid root directory: {0}")]
     InvalidRootDir(String),
+
+    #[error("custom error: {0}")]
+    Custom(String),
 }

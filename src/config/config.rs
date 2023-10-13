@@ -1,12 +1,15 @@
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Error;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use log::{info, error};
-use config::{File, Environment, FileFormat};
+use config::{File, Environment, FileFormat, Value};
 use multiaddr::{Multiaddr};
+use handlebars::Handlebars;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use crate::config::config_file::DEFAULT_CONFIG_TEMPLATE;
 
 use crate::config::config_utils::{ByteSize, expand_home_dir};
 use crate::config::errors::ConfigError;
@@ -21,48 +24,60 @@ const LOG_LEVEL_ERROR: &str = "error";
 const LOG_LEVEL_FATAL: &str = "fatal";
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Config {
-    datastore: DatastoreConfig,
-    api: APIConfig,
-    net: NetConfig,
-    log: LoggingConfig,
-    rootdir: String,
-    config: config::Config,
+pub struct Config {
+    pub datastore: DatastoreConfig,
+    pub api: APIConfig,
+    pub net: NetConfig,
+    pub log: LoggingConfig,
+    pub rootdir: String,
+
+    #[serde(skip)]
+    pub config: config::Config,
 }
 
 impl Config {
-    pub fn default_config() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn default_config() -> Result<Self, ConfigError> {
         let mut config = config::Config::default();
 
-        config.set_default("Datastore", DatastoreConfig::default_data_store_config())?;
-        config.set_default("API", APIConfig::default_api_config())?;
-        config.set_default("Net", NetConfig::default_net_config())?;
-        config.set_default("Log", LoggingConfig::default_log_config())?;
-        config.set_default("Rootdir", PathBuf::new())?;
+        // TODO: add default config
+        // config.set_default("Datastore", DatastoreConfig::default_data_store_config())?;
 
-        config.set_env_prefix("defra_env_prefix");
-        config.set_env_replacer("_", ".");
+        config.set_default("API", json!(APIConfig::default_api_config()).as_str().unwrap().to_string())
+            .map_err(|e| ConfigError::Custom(format!("Failed to set default api config: {}", e)))?;
 
-        config.merge(File::new("DefaultConfigFileName", FileFormat::Toml))?;
+        config.set_default("Net", json!(NetConfig::default_net_config()).as_str().unwrap().to_string())
+            .map_err(|e| ConfigError::Custom(format!("Failed to set default net config: {}", e)))?;
+
+        config.set_default("Log", json!(LoggingConfig::default_log_config()).as_str().unwrap().to_string())
+            .map_err(|e| ConfigError::Custom(format!("Failed to set default log config: {}", e)))?;
+
+        config.set_default("Rootdir", "".to_string())
+            .map_err(|e| ConfigError::Custom(format!("Failed to set default rootdir: {}", e)))?;
+
+        // TODO: find equivalents fo the same
+        // config.set_env_prefix("defra_env_prefix");
+        // config.set_env_replacer("_", ".");
+
+        config.merge(File::new("DefaultConfigFileName", FileFormat::Toml)).map_err(|e| ConfigError::Custom(format!("Failed to merge default config file: {}", e)))?;
 
         let cfg = Config {
-            datastore: config.get("Datastore")?,
-            api: config.get("API")?,
-            net: config.get("Net")?,
-            log: config.get("Log")?,
-            rootdir: config.get("Rootdir")?,
+            datastore: config.get("Datastore").map_err(|e| ConfigError::Custom(format!("Failed to get datastore: {}", e)))?,
+            api: config.get("API").map_err(|e| ConfigError::Custom(format!("Failed to get api: {}", e)))?,
+            net: config.get("Net").map_err(|e| ConfigError::Custom(format!("Failed to get net: {}", e)))?,
+            log: config.get("Log").map_err(|e| ConfigError::Custom(format!("Failed to get log: {}", e)))?,
+            rootdir: config.get("Rootdir").map_err(|e| ConfigError::Custom(format!("Failed to get rootdir: {}", e)))?,
             config,
         };
 
         Ok(cfg)
     }
 
-    pub fn load_with_rootdir(&mut self, with_rootdir: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn load_with_rootdir(&mut self, with_rootdir: bool) -> Result<(), ConfigError> {
         if with_rootdir {
-            self.config.merge(File::with_name(self.rootdir.to_str().unwrap()))?;
+            self.config.merge(File::with_name(self.rootdir.as_str())).map_err(|e| ConfigError::Custom(format!("Failed to merge config file: {}", e)))?;
         }
 
-        self.config.try_into::<Self>()?;
+        self.config.clone().try_into::<Self>().map_err(|e| ConfigError::Custom(format!("Failed to load config: {}", e)))?;
         self.validate()?;
         self.params_preprocessing()?;
         self.load()?;
@@ -70,17 +85,17 @@ impl Config {
         Ok(())
     }
 
-    fn set_rootdir(&mut self, rootdir: &str) -> Result<(), Error> {
+    fn set_rootdir(&mut self, rootdir: &str) -> Result<(), ConfigError> {
         if rootdir.is_empty() {
-            return ConfigError::InvalidRootDir(rootdir.to_string()).into();
+            return Err(ConfigError::InvalidRootDir(rootdir.to_string()).into());
         }
 
-        self.rootdir = fs::canonicalize(rootdir).into()?; // This gets the absolute path
-        self.config.set_default("rootdir", &self.rootdir.display().to_string())?;
+        self.rootdir = fs::canonicalize(rootdir).map(|p| p.to_str().unwrap().to_string()).map_err(|e| ConfigError::Custom(format!("Failed to canonicalize rootdir: {}", e)))?;
+        self.config.set_default("rootdir", self.rootdir.clone()).map_err(|e| ConfigError::Custom(format!("Failed to set rootdir: {}", e)))?;
         Ok(())
     }
 
-    fn validate(&self) -> Result<(), Error> {
+    fn validate(&self) -> Result<(), ConfigError> {
         self.datastore.validate()?;
         self.api.validate()?;
         self.net.validate()?;
@@ -88,11 +103,11 @@ impl Config {
         Ok(())
     }
 
-    fn params_preprocessing(&mut self) -> Result<(), Error> {
-        let update_path = |key: &str| {
-            let path = self.config.get::<String>(key).unwrap_or_default();
+    fn params_preprocessing(&mut self) -> Result<(), ConfigError> {
+        let mut update_path = |key: &str| {
+            let mut path = self.config.get::<String>(key).unwrap_or_default();
             if !Path::new(&path).is_absolute() {
-                self.config.set(key, self.rootdir.join(path).display().to_string()).unwrap();
+                self.config.set(key, self.rootdir.clone()  + path.as_str()).unwrap();
             }
         };
 
@@ -106,8 +121,8 @@ impl Config {
         }
 
         // Assuming expand_home_dir exists
-        expand_home_dir(&mut self.api.priv_key_path)?;
-        expand_home_dir(&mut self.api.pub_key_path)?;
+        expand_home_dir(&mut self.api.priv_key_path).map_err(|e| ConfigError::Custom(format!("Unable to expand home directory: {}", e)))?;
+        expand_home_dir(&mut self.api.pub_key_path).map_err(|e| ConfigError::Custom(format!("Unable to expand home directory: {}", e)))?;
 
         // Assuming ByteSize and its set() method exist
         let mut bs = ByteSize::default();
@@ -122,9 +137,19 @@ impl Config {
         self.log.load()?;
         Ok(())
     }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>, ConfigError> {
+        let mut handlebars = Handlebars::new();
+        let config_template = DEFAULT_CONFIG_TEMPLATE;
+        handlebars.register_template_string("configTemplate", config_template).map_err(|e| ConfigError::Custom(format!("Could not register config template: {}", e)))?;
+
+        let rendered = handlebars.render("configTemplate", &self).map_err(|e| ConfigError::Custom(format!("Could not process config template: {}", e)))?;
+
+        Ok(rendered.into_bytes())
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct DatastoreConfig {
     store: String,
     memory: MemoryConfig,
@@ -132,13 +157,13 @@ struct DatastoreConfig {
     max_txn_retries: i32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct BadgerConfig {
-    path: PathBuf,
+    path: String,
     value_log_file_size: ByteSize,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct MemoryConfig {
     size: u64,
 }
@@ -154,7 +179,7 @@ impl DatastoreConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct APIConfig {
     address: String,
     tls: bool,
@@ -227,7 +252,7 @@ impl APIConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct NetConfig {
     p2p_address: String,
     p2p_disabled: bool,
@@ -247,13 +272,13 @@ impl NetConfig {
             relay_enabled: false,
         }
     }
-    fn validate(&self) -> Result<(), Error> {
-        self.p2p_address.parse::<Multiaddr>().map_err(|err| ConfigError::InvalidP2PAddress(err.to_string(), self.p2p_address.clone()).into())?;
+    fn validate(&self) -> Result<(), ConfigError> {
+        self.p2p_address.parse::<Multiaddr>().map_err(|err| ConfigError::InvalidP2PAddress(err.to_string(), self.p2p_address.clone()))?;
 
         if !self.peers.is_empty() {
             let peers: Vec<&str> = self.peers.split(',').collect();
-            for addr in peers {
-                self.p2p_address.parse::<Multiaddr>().map_err(|err| ConfigError::InvalidBootstrapPeers(err.to_string(), peers.into_iter().map(|x| x.to_string()).collect()).into())?;
+            for addr in &peers {
+                addr.parse::<Multiaddr>().map_err(|err| ConfigError::InvalidBootstrapPeers(err.to_string(), peers.clone().iter().map(|x| (**x).to_string()).collect::<Vec<_>>().join(", ")))?;
             }
         }
 
@@ -261,7 +286,7 @@ impl NetConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct LoggingConfig {
     level: String,
     stacktrace: bool,
@@ -273,7 +298,7 @@ struct LoggingConfig {
     named_overrides: HashMap<String, NamedLoggingConfig>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct NamedLoggingConfig {
     name: String,
     logging_config: LoggingConfig,
@@ -293,7 +318,7 @@ impl LoggingConfig {
         }
     }
 
-    fn validate(&self) -> Result<(), Error> {
+    fn validate(&self) -> Result<(), ConfigError> {
         fn valid_level(level: &str) -> bool {
             match level {
                 LOG_LEVEL_DEBUG | LOG_LEVEL_INFO | LOG_LEVEL_ERROR | LOG_LEVEL_FATAL => true,
@@ -301,12 +326,12 @@ impl LoggingConfig {
             }
         }
 
-        fn ensure_unique_keys(kvs: &Vec<HashMap<&str, &str>>) -> Result<(), Error> {
+        fn ensure_unique_keys(kvs: &Vec<HashMap<&str, &str>>) -> Result<(), ConfigError> {
             let mut keys = HashSet::new();
             for kv in kvs {
                 for k in kv.keys() {
                     if keys.contains(k) {
-                        return ConfigError::DuplicateLoggerName(k.to_string()).into()
+                        return Err(ConfigError::DuplicateLoggerName(k.to_string()))
                     }
                     keys.insert(k);
                 }
@@ -319,14 +344,14 @@ impl LoggingConfig {
         let parts: Vec<&str> = self.level.split(',').collect();
 
         if !parts.is_empty() && !valid_levels.contains(&parts[0]) {
-            return ConfigError::InvalidLogLevel(parts[0].to_string()).into();
+            return Err(ConfigError::InvalidLogLevel(parts[0].to_string()));
         }
 
         let mut kvs: Vec<HashMap<&str, &str>> = Vec::new();
         for kv in &parts[1..] {
             let parsed_kv: Vec<&str> = kv.split('=').collect();
             if parsed_kv.len() != 2 || parsed_kv[0].is_empty() || parsed_kv[1].is_empty() {
-                return ConfigError::NotProvidedAsKV(kv.to_string()).into();
+                return Err(ConfigError::NotProvidedAsKV(kv.to_string()));
             }
 
             let mut new_kv = HashMap::new();
@@ -339,20 +364,20 @@ impl LoggingConfig {
             for config in &named_configs {
                 let parts: Vec<&str> = config.split(',').collect();
                 if parts.len() < 2 {
-                    return ConfigError::InvalidLoggerConfig("unexpected format (expected: `module,key=value;module,key=value;...`".to_string()).into();
+                    return Err(ConfigError::InvalidLoggerConfig("unexpected format (expected: `module,key=value;module,key=value;...`".to_string()).into());
                 }
                 if parts[0].is_empty() {
-                    return ConfigError::InvalidLoggerName("".to_string()).into();
+                    return Err(ConfigError::InvalidLoggerName("".to_string()).into());
                 }
                 for pair in &parts[1..] {
                     let parsed_kv: Vec<&str> = pair.split('=').collect();
                     if parsed_kv.len() != 2 || parsed_kv[0].is_empty() || parsed_kv[1].is_empty() {
-                        return ConfigError::NotProvidedAsKV(pair.to_string()).into();
+                        return Err(ConfigError::NotProvidedAsKV(pair.to_string()).into());
                     }
                     match parsed_kv[0] {
                         "format" | "output" | "nocolor" | "stacktrace" | "caller" => {}
                         "level" if valid_levels.contains(&parsed_kv[1]) => {}
-                        _ => return ConfigError::UnknownLoggerParameter(parsed_kv[0].to_string()).into(),
+                        _ => return Err(ConfigError::UnknownLoggerParameter(parsed_kv[0].to_string()).into()),
                     }
                 }
             }
@@ -362,7 +387,8 @@ impl LoggingConfig {
 
     fn load(&mut self) -> Result<(), ConfigError> {
         // load loglevel
-        let parts: Vec<&str> = self.level.split(',').collect();
+        let parts_copy = self.level.clone();
+        let parts: Vec<&str> = parts_copy.split(',').collect();
         if !parts.is_empty() {
             self.level = parts[0].to_string();
         }
@@ -370,11 +396,11 @@ impl LoggingConfig {
             for kv in &parts[1..] {
                 let parsed_kv: Vec<&str> = kv.split('=').collect();
                 if parsed_kv.len() != 2 {
-                    return Err(ConfigError::InvalidLogLevel(kv.to_string()));
+                    return Err(ConfigError::InvalidLogLevel(kv.to_string()).into());
                 }
                 match self.get_or_create_named_logger(parsed_kv[0]) {
                     Ok(c) => c.logging_config.level = parsed_kv[1].to_string(),
-                    Err(e) => return Err(ConfigError::CouldNotObtainLoggerConfig(e.to_string(), parsed_kv[0].to_string())),
+                    Err(e) => return Err(ConfigError::CouldNotObtainLoggerConfig(e.to_string(), parsed_kv[0].to_string()).into()),
                 }
             }
         }
@@ -389,7 +415,7 @@ impl LoggingConfig {
                 for v in &vs[1..] {
                     let parsed_kv: Vec<&str> = v.split('=').collect();
                     if parsed_kv.len() != 2 {
-                        return Err(ConfigError::NotProvidedAsKV(v.to_string()));
+                        return Err(ConfigError::NotProvidedAsKV(v.to_string()).into());
                     }
                     match parsed_kv[0].to_lowercase().as_str() {
                         "level" => override_logger.logging_config.level = parsed_kv[1].to_string(),
@@ -397,30 +423,31 @@ impl LoggingConfig {
                         "output" => override_logger.logging_config.output = parsed_kv[1].to_string(),
                         "stacktrace" => match parsed_kv[1].parse::<bool>() {
                             Ok(val) => override_logger.logging_config.stacktrace = val,
-                            Err(_) => return Err(ConfigError::CouldNotParseType("bool".to_string())),
+                            Err(_) => return Err(ConfigError::CouldNotParseType("bool".to_string()).into()),
                         },
                         "nocolor" => match parsed_kv[1].parse::<bool>() {
                             Ok(val) => override_logger.logging_config.no_color = val,
-                            Err(_) => return Err(ConfigError::CouldNotParseType("bool".to_string())),
+                            Err(_) => return Err(ConfigError::CouldNotParseType("bool".to_string()).into()),
                         },
                         "caller" => match parsed_kv[1].parse::<bool>() {
                             Ok(val) => override_logger.logging_config.caller = val,
-                            Err(_) => return Err(ConfigError::CouldNotParseType("bool".to_string())),
+                            Err(_) => return Err(ConfigError::CouldNotParseType("bool".to_string()).into()),
                         },
-                        _ => return Err(ConfigError::UnknownLoggerParameter(parsed_kv[0].to_string())),
+                        _ => return Err(ConfigError::UnknownLoggerParameter(parsed_kv[0].to_string()).into()),
                     }
                 }
             }
         }
 
-        let c = self.to_logger_config()?;
+        // TODO: Implmenet corresponding to_logger_config() method
+        // let c = self.to_logger_config()?;
 
         // TODO: set logging config
         // logging::set_config(c);
         Ok(())
     }
 
-    fn get_or_create_named_logger(&mut self, name: &str) -> Result<&mut NamedLoggingConfig, Error> {
+    fn get_or_create_named_logger(&mut self, name: &str) -> Result<&mut NamedLoggingConfig, ConfigError> {
         if let Some(named_cfg) = self.named_overrides.get_mut(name) {
             return Ok(named_cfg);
         }
@@ -436,7 +463,7 @@ impl LoggingConfig {
 }
 
 impl NamedLoggingConfig {
-    fn validate(&self) -> Result<(), Error> {
+    fn validate(&self) -> Result<(), ConfigError> {
         self.logging_config.validate()
     }
 }
