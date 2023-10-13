@@ -407,7 +407,8 @@ impl LoggingConfig {
 
         // load logger
         if !self.logger.is_empty() {
-            let s: Vec<&str> = self.logger.split(';').collect();
+            let logger_copy = self.logger.clone();
+            let s: Vec<&str> = logger_copy.split(';').collect();
             for v in s {
                 let vs: Vec<&str> = v.split(',').collect();
                 let mut override_logger = self.get_or_create_named_logger(vs[0])?;
@@ -448,16 +449,17 @@ impl LoggingConfig {
     }
 
     fn get_or_create_named_logger(&mut self, name: &str) -> Result<&mut NamedLoggingConfig, ConfigError> {
-        if let Some(named_cfg) = self.named_overrides.get_mut(name) {
-            return Ok(named_cfg);
+        // Check if the named logger exists.
+        if !self.named_overrides.contains_key(name) {
+            // If doesn't exist, create a new named logger
+            let named_cfg = NamedLoggingConfig {
+                name: name.to_string(),
+                logging_config: self.clone(),
+            };
+            self.named_overrides.insert(name.to_string(), named_cfg);
         }
 
-        // If doesn't exist, create a new named logger
-        let named_cfg = NamedLoggingConfig {
-            name: name.to_string(),
-            logging_config: self.clone(),
-        };
-        self.named_overrides.insert(name.to_string(), named_cfg);
+        // At this point, either the named logger existed or we created it. Return it.
         Ok(self.named_overrides.get_mut(name).unwrap())
     }
 }
