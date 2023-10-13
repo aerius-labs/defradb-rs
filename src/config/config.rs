@@ -85,6 +85,8 @@ impl Config {
         Ok(())
     }
 
+    //TODO: Load root directory from flag or default
+
     fn set_rootdir(&mut self, rootdir: &str) -> Result<(), ConfigError> {
         if rootdir.is_empty() {
             return Err(ConfigError::InvalidRootDir(rootdir.to_string()).into());
@@ -150,22 +152,23 @@ impl Config {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct DatastoreConfig {
-    store: String,
-    memory: MemoryConfig,
-    badger: BadgerConfig,
-    max_txn_retries: i32,
+pub struct DatastoreConfig {
+    pub store: String,
+    pub memory: MemoryConfig,
+    pub badger: BadgerConfig,
+    pub max_txn_retries: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct BadgerConfig {
-    path: String,
-    value_log_file_size: ByteSize,
+pub struct BadgerConfig {
+    pub path: String,
+    pub value_log_file_size: ByteSize,
+    //TODO: add badgerds options
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct MemoryConfig {
-    size: u64,
+pub struct MemoryConfig {
+    pub size: u64,
 }
 
 impl DatastoreConfig {
@@ -180,13 +183,13 @@ impl DatastoreConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct APIConfig {
-    address: String,
-    tls: bool,
-    allowed_origins: Vec<String>,
-    pub_key_path: String,
-    priv_key_path: String,
-    email: String,
+pub struct APIConfig {
+    pub address: String,
+    pub tls: bool,
+    pub allowed_origins: Vec<String>,
+    pub pub_key_path: String,
+    pub priv_key_path: String,
+    pub email: String,
 }
 
 
@@ -202,7 +205,7 @@ impl APIConfig {
         }
     }
 
-    pub fn validate(&self) -> Result<(), ConfigError> {
+    fn validate(&self) -> Result<(), ConfigError> {
         if self.address.is_empty() {
             return Err(ConfigError::InvalidDatabaseURL);
         }
@@ -253,12 +256,12 @@ impl APIConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct NetConfig {
-    p2p_address: String,
-    p2p_disabled: bool,
-    peers: String,
-    pub_sub_enabled: bool,
-    relay_enabled: bool,
+pub struct NetConfig {
+    pub p2p_address: String,
+    pub p2p_disabled: bool,
+    pub peers: String,
+    pub pub_sub_enabled: bool,
+    pub relay_enabled: bool,
 }
 
 impl NetConfig {
@@ -287,21 +290,21 @@ impl NetConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct LoggingConfig {
-    level: String,
-    stacktrace: bool,
-    format: String,
-    output: String,
-    caller: bool,
-    no_color: bool,
-    logger: String,
-    named_overrides: HashMap<String, NamedLoggingConfig>,
+pub struct LoggingConfig {
+    pub level: String,
+    pub stacktrace: bool,
+    pub format: String,
+    pub output: String,
+    pub caller: bool,
+    pub no_color: bool,
+    pub logger: String,
+    pub named_overrides: HashMap<String, NamedLoggingConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct NamedLoggingConfig {
-    name: String,
-    logging_config: LoggingConfig,
+pub struct NamedLoggingConfig {
+    pub name: String,
+    pub logging_config: LoggingConfig,
 }
 
 impl LoggingConfig {
