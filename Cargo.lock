@@ -163,6 +163,7 @@ dependencies = [
  "idna",
  "log",
  "multiaddr",
+ "once_cell",
  "serde 1.0.188",
  "serde_json",
  "thiserror",

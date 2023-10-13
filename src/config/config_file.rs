@@ -1,14 +1,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use handlebars::Handlebars;
+use once_cell::sync::Lazy;
+use std::fs::Permissions;
+use std::os::unix::fs::PermissionsExt;
+
 use super::Config;
 use super::ConfigError;
 
 const DEFAULT_CONFIG_FILE_NAME: &str = "config.yaml";
-const DEFAULT_DIR_PERM: fs::Permissions = fs::Permissions::from_mode(0o700);
-const DEFAULT_CONFIG_FILE_PERM: fs::Permissions = fs::Permissions::from_mode(0o644);
+static DEFAULT_DIR_PERM: Lazy<Permissions> = Lazy::new(|| Permissions::from_mode(0o700));
+static DEFAULT_CONFIG_FILE_PERM: Lazy<Permissions> = Lazy::new(|| Permissions::from_mode(0o644));
 
 // Embed the default config template
 pub const DEFAULT_CONFIG_TEMPLATE: &str = include_str!("configfile_yaml.gotmpl");
