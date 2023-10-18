@@ -14,7 +14,6 @@ use crate::config::config_file::DEFAULT_CONFIG_TEMPLATE;
 use crate::config::config_utils::{ByteSize, expand_home_dir};
 use crate::config::errors::ConfigError;
 
-
 const DEFAULT_API_EMAIL: &str = "example@example.com";
 const ROOTDIR_KEY: &str = "rootdircli";
 const DEFRA_ENV_PREFIX: &str = "DEFRA";
